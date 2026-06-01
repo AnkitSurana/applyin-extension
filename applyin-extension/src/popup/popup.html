@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Google+Sans+Text:wght@400;500&display=swap"
+    rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      width: 320px;
+      background: #fff;
+      font-family: 'Google Sans Text', 'Google Sans', system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+    }
+
+    /* ── Animations ─────────────────────────────────────────── */
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+
+      to {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+      }
+
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes pulse-g {
+
+      0%,
+      100% {
+        box-shadow: 0 0 0 3px rgba(30, 142, 62, .18);
+      }
+
+      50% {
+        box-shadow: 0 0 0 6px rgba(30, 142, 62, .06);
+      }
+    }
+
+    @keyframes pulse-b {
+
+      0%,
+      100% {
+        box-shadow: 0 0 0 3px rgba(26, 115, 232, .2);
+      }
+
+      50% {
+        box-shadow: 0 0 0 6px rgba(26, 115, 232, .06);
+      }
+    }
+
+    @keyframes pulse-a {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: .4;
+      }
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes countUp {
+      from {
+        transform: translateY(6px);
+        opacity: 0;
+      }
+
+      to {
+        transform: none;
+        opacity: 1;
+      }
+    }
+
+    @keyframes shimmer {
+      0% {
+        background-position: -200% 0;
+      }
+
+      100% {
+        background-position: 200% 0;
+      }
+    }
+
+    /* ── Header ────────────────────────────────────────────── */
+    .header {
+      padding: 14px 16px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(135deg, #1a73e8 0%, #1557b0 100%);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .brand-icon {
+      width: 30px;
+      height: 30px;
+      background: rgba(255, 255, 255, .2);
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, .3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: fadeIn .3s ease;
+    }
+
+    .brand-name {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -.2px;
+    }
+
+    .version-badge {
+      font-size: 10px;
+      font-weight: 600;
+      background: rgba(255, 255, 255, .2);
+      color: rgba(255, 255, 255, .9);
+      padding: 3px 8px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, .25);
+    }
+
+    /* ── Server status bar ─────────────────────────────────── */
+    .server-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: #f8f9fa;
+      border-bottom: 1px solid #e8eaed;
+      animation: fadeIn .2s ease .1s both;
+    }
+
+    .server-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: #dadce0;
+      transition: background .3s;
+    }
+
+    .server-dot.online {
+      background: #1e8e3e;
+      animation: pulse-g 2.5s infinite;
+    }
+
+    .server-dot.offline {
+      background: #d93025;
+    }
+
+    .server-dot.checking {
+      background: #f29900;
+      animation: pulse-a .8s infinite;
+    }
+
+    .server-label {
+      font-size: 11.5px;
+      color: #5f6368;
+      flex: 1;
+    }
+
+    .server-label strong {
+      color: #202124;
+      font-weight: 500;
+    }
+
+    .retry-link {
+      font-size: 11px;
+      color: #1a73e8;
+      cursor: pointer;
+      background: none;
+      border: none;
+      font-family: inherit;
+      padding: 0;
+    }
+
+    /* ── Views ─────────────────────────────────────────────── */
+    #login-view,
+    #main-view {
+      animation: fadeUp .25s ease both;
+    }
+
+    /* ── Login ─────────────────────────────────────────────── */
+    .login-body {
+      padding: 20px 16px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .login-hero {
+      text-align: center;
+      padding-bottom: 4px;
+    }
+
+    .login-hero-title {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: #202124;
+      margin-bottom: 4px;
+    }
+
+    .login-hero-sub {
+      font-size: 12.5px;
+      color: #5f6368;
+      line-height: 1.5;
+    }
+
+    .tab-group {
+      display: flex;
+      background: #f1f3f4;
+      border-radius: 10px;
+      padding: 3px;
+      gap: 2px;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 7px;
+      border: none;
+      background: transparent;
+      font-family: 'Google Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      color: #5f6368;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+
+    .tab-btn.active {
+      background: #fff;
+      color: #1a73e8;
+      font-weight: 600;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, .1);
+    }
+
+    .input-wrap {
+      position: relative;
+    }
+
+    .input-wrap .input-icon {
+      position: absolute;
+      left: 11px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #80868b;
+      pointer-events: none;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 10px 12px 10px 34px;
+      border: 1.5px solid #dadce0;
+      border-radius: 9px;
+      font-family: inherit;
+      font-size: 13.5px;
+      color: #202124;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+      background: #fff;
+    }
+
+    .form-input:focus {
+      border-color: #1a73e8;
+      box-shadow: 0 0 0 3px rgba(26, 115, 232, .12);
+    }
+
+    .form-input::placeholder {
+      color: #9aa0a6;
+    }
+
+    .login-error {
+      font-size: 12px;
+      color: #d93025;
+      text-align: center;
+      min-height: 14px;
+      animation: fadeIn .2s ease;
+    }
+
+    .submit-btn {
+      width: 100%;
+      padding: 11px;
+      background: linear-gradient(135deg, #1a73e8, #1557b0);
+      color: #fff;
+      border: none;
+      border-radius: 20px;
+      font-family: 'Google Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity .15s, box-shadow .15s;
+      box-shadow: 0 2px 8px rgba(26, 115, 232, .35);
+    }
+
+    .submit-btn:hover {
+      opacity: .92;
+      box-shadow: 0 4px 12px rgba(26, 115, 232, .4);
+    }
+
+    .submit-btn:active {
+      opacity: .85;
+      box-shadow: none;
+    }
+
+    .submit-btn:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 13px;
+      height: 13px;
+      border: 2px solid rgba(255, 255, 255, .4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    .login-free {
+      font-size: 11.5px;
+      color: #9aa0a6;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+
+    .free-badge {
+      background: #e6f4ea;
+      color: #1e8e3e;
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 10px;
+    }
+
+    /* ── Main view ─────────────────────────────────────────── */
+    .main-body {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    /* User card */
+    .user-card {
+      margin: 12px 12px 0;
+      background: #f8f9fa;
+      border: 1px solid #e8eaed;
+      border-radius: 12px;
+      overflow: hidden;
+      animation: fadeUp .2s ease .05s both;
+    }
+
+    .user-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 13px;
+    }
+
+    .avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #1a73e8, #7baaf7);
+      color: #fff;
+      font-family: 'Google Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .user-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .user-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #202124;
+    }
+
+    .user-email {
+      font-size: 11px;
+      color: #80868b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .divider {
+      height: 1px;
+      background: #e8eaed;
+      margin: 0 13px;
+    }
+
+    /* Credits row */
+    .credits-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 13px;
+    }
+
+    .credit-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: #fef7e0;
+      border: 1px solid #fde28a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .credits-info {
+      flex: 1;
+    }
+
+    .credits-val {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      color: #202124;
+      animation: countUp .3s ease;
+    }
+
+    .credits-sub {
+      font-size: 11px;
+      color: #80868b;
+    }
+
+    .buy-btn {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #1a73e8;
+      background: #e8f0fe;
+      border: none;
+      border-radius: 20px;
+      padding: 5px 12px;
+      cursor: pointer;
+      transition: background .15s;
+      flex-shrink: 0;
+    }
+
+    .buy-btn:hover {
+      background: #d2e3fc;
+    }
+
+    /* ── Sidebar toggle card ────────────────────────────────── */
+    .toggle-card {
+      margin: 10px 12px 0;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1.5px solid #dadce0;
+      transition: border-color .2s, box-shadow .2s;
+      animation: fadeUp .2s ease .1s both;
+      cursor: pointer;
+    }
+
+    .toggle-card.active {
+      border-color: #1a73e8;
+      box-shadow: 0 2px 12px rgba(26, 115, 232, .15);
+    }
+
+    .toggle-inner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 13px 14px;
+      background: #fff;
+      transition: background .2s;
+    }
+
+    .toggle-card.active .toggle-inner {
+      background: #f0f6ff;
+    }
+
+    .toggle-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: #f1f3f4;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .2s;
+    }
+
+    .toggle-card.active .toggle-icon {
+      background: #e8f0fe;
+    }
+
+    .toggle-icon svg {
+      transition: color .2s;
+      color: #5f6368;
+    }
+
+    .toggle-card.active .toggle-icon svg {
+      color: #1a73e8;
+    }
+
+    .toggle-text-wrap {
+      flex: 1;
+    }
+
+    .toggle-title {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #202124;
+      margin-bottom: 2px;
+    }
+
+    .toggle-card.active .toggle-title {
+      color: #1a73e8;
+    }
+
+    .toggle-sub {
+      font-size: 11.5px;
+      color: #80868b;
+    }
+
+    /* iOS-style toggle switch */
+    .switch {
+      width: 40px;
+      height: 22px;
+      border-radius: 11px;
+      background: #dadce0;
+      position: relative;
+      transition: background .25s;
+      flex-shrink: 0;
+    }
+
+    .toggle-card.active .switch {
+      background: #1a73e8;
+    }
+
+    .switch::after {
+      content: '';
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      top: 2px;
+      left: 2px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
+      transition: transform .25s cubic-bezier(.4, 0, .2, 1);
+    }
+
+    .toggle-card.active .switch::after {
+      transform: translateX(18px);
+    }
+
+    /* ── Activity strip ────────────────────────────────────── */
+    .activity-strip {
+      margin: 10px 12px 0;
+      padding: 9px 13px;
+      background: #f8f9fa;
+      border: 1px solid #e8eaed;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      animation: fadeUp .2s ease .15s both;
+    }
+
+    .activity-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .activity-text {
+      font-size: 12px;
+      color: #5f6368;
+      flex: 1;
+    }
+
+    .activity-text strong {
+      color: #202124;
+      font-weight: 500;
+    }
+
+    /* ── Not on LinkedIn notice ────────────────────────────── */
+    .notice {
+      margin: 10px 12px 0;
+      padding: 10px 13px;
+      background: #fef7e0;
+      border: 1px solid #f9c97c;
+      border-radius: 10px;
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      animation: fadeUp .2s ease .15s both;
+    }
+
+    .notice-icon {
+      font-size: 13px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .notice-text {
+      font-size: 12px;
+      color: #7a4f00;
+      line-height: 1.5;
+    }
+
+    .notice-link {
+      color: #1a73e8;
+      cursor: pointer;
+      background: none;
+      border: none;
+      font-size: 12px;
+      padding: 0;
+      font-family: inherit;
+      text-decoration: underline;
+    }
+
+    /* ── Footer ────────────────────────────────────────────── */
+    .popup-footer {
+      margin: 10px 12px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      animation: fadeUp .2s ease .2s both;
+    }
+
+    .footer-info {
+      font-size: 11px;
+      color: #9aa0a6;
+    }
+
+    .sign-out {
+      font-size: 11.5px;
+      color: #d93025;
+      font-weight: 500;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: background .1s;
+    }
+
+    .sign-out:hover {
+      background: #fce8e6;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Login view -->
+  <div id="login-view" style="display:none">
+    <div class="header">
+      <div class="brand">
+        <div class="brand-icon"
+          style="background:transparent;border:none;padding:0;overflow:hidden;width:28px;height:28px;border-radius:7px">
+          <img class="popup-logo-img" width="28" height="28" style="display:block" />
+        </div>
+        <span class="brand-name">Apply<span style="color:#28a75a">in</span></span>
+      </div>
+      <span class="version-badge">v1.0</span>
+    </div>
+
+    <div class="server-bar">
+      <div class="server-dot checking" id="server-dot-l"></div>
+      <span class="server-label" id="server-label-l">Checking server…</span>
+    </div>
+
+    <div class="login-body">
+      <div class="login-hero">
+        <div class="login-hero-title">Know your fit before you apply.</div>
+        <p class="login-hero-sub">AI-powered job analysis on LinkedIn.<br>Free to start — no card required.</p>
+      </div>
+
+      <div class="tab-group">
+        <button class="tab-btn active" data-tab="login">Sign in</button>
+        <button class="tab-btn" data-tab="signup">Create account</button>
+      </div>
+
+      <div class="input-wrap">
+        <svg class="input-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2">
+          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+          <polyline points="22,6 12,13 2,6" />
+        </svg>
+        <input type="email" class="form-input" id="login-email" placeholder="Email address" autocomplete="email" />
+      </div>
+
+      <div class="input-wrap">
+        <svg class="input-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </svg>
+        <input type="password" class="form-input" id="login-password" placeholder="Password"
+          autocomplete="current-password" />
+      </div>
+
+      <div class="login-error" id="login-error"></div>
+
+      <button class="submit-btn" id="login-submit">Sign in</button>
+
+      <div class="login-free" id="login-free" style="display:none">
+        <span class="free-badge">FREE</span>
+        3 analysis on signup · No card required
+      </div>
+    </div>
+  </div>
+
+  <!-- Main (logged in) view -->
+  <div id="main-view" style="display:none">
+    <div class="header">
+      <div class="brand">
+        <div class="brand-icon"
+          style="background:transparent;border:none;padding:0;overflow:hidden;width:28px;height:28px;border-radius:7px">
+          <img class="popup-logo-img" width="28" height="28" style="display:block" />
+        </div>
+        <span class="brand-name">Apply<span style="color:#28a75a">in</span></span>
+      </div>
+      <span class="version-badge">v1.0</span>
+    </div>
+
+    <div class="server-bar">
+      <div class="server-dot checking" id="server-dot-m"></div>
+      <span class="server-label" id="server-label-m">Checking server…</span>
+      <button class="retry-link" id="retry-btn" style="display:none">Retry</button>
+    </div>
+
+    <div class="main-body">
+      <!-- User card -->
+      <div class="user-card">
+        <div class="user-row">
+          <div class="avatar" id="avatar">?</div>
+          <div class="user-info">
+            <div class="user-name" id="user-name">—</div>
+            <div class="user-email" id="user-email">—</div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="credits-row">
+          <div class="credit-icon">⚡</div>
+          <div class="credits-info">
+            <div class="credits-val" id="credits-val">—</div>
+            <div class="credits-sub">analysis credits</div>
+          </div>
+          <button class="buy-btn" id="buy-btn">Buy more</button>
+        </div>
+      </div>
+
+      <!-- Sidebar toggle -->
+      <div class="toggle-card" id="toggle-card">
+        <div class="toggle-inner">
+          <div class="toggle-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <line x1="9" y1="3" x2="9" y2="21" />
+            </svg>
+          </div>
+          <div class="toggle-text-wrap">
+            <div class="toggle-title" id="toggle-title">Activate sidebar</div>
+            <div class="toggle-sub" id="toggle-sub">Click to show on LinkedIn</div>
+          </div>
+          <div class="switch" id="toggle-switch"></div>
+        </div>
+      </div>
+
+      <!-- Activity / status strip -->
+      <div class="activity-strip" id="activity-strip">
+        <div class="activity-dot" id="activity-dot" style="background:#dadce0"></div>
+        <span class="activity-text" id="activity-text">Open a LinkedIn job page to start</span>
+      </div>
+
+      <!-- Not on LinkedIn notice -->
+      <div class="notice" id="not-linkedin" style="display:none">
+        <span class="notice-icon">💡</span>
+        <div class="notice-text">
+          Open LinkedIn Jobs to analyse a role.
+          <br>
+          <button class="notice-link" id="go-linkedin">Go to LinkedIn Jobs →</button>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="popup-footer">
+        <span class="footer-info" id="footer-info">Ready</span>
+        <button class="sign-out" id="sign-out-btn">Sign out</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
+</html>

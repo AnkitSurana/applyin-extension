@@ -98,6 +98,15 @@
   }
   let lastJobId = null;
   let isAnalyzing = false;
+  let lastFit = null;
+
+  // Recolour the pull tab + sidebar accent to a fit level
+  function applyPullTabFit(fit) {
+    const tab = document.getElementById("cc-pull-tab");
+    if (!tab) return;
+    tab.classList.remove("cc-fit-strong", "cc-fit-medium", "cc-fit-weak");
+    if (fit) tab.classList.add("cc-fit-" + fit);
+  }
 
   // ── LinkedIn scraping ──────────────────────────────────────────────────────
   function getText(selectors) {
@@ -181,11 +190,36 @@
       description = candidates[0]?.innerText?.trim() || "";
     }
 
-    const techKeywords = ["Python", "SQL", "Spark", "Kafka", "Airflow", "dbt", "Kubernetes", "Docker", "AWS", "GCP", "Azure", "Terraform", "Snowflake", "Redshift", "BigQuery", "Databricks", "MLflow", "Ray", "Flink", "Trino", "React", "TypeScript", "JavaScript", "Java", "Scala", "Go", "Rust", "C++", "C#", "PostgreSQL", "MySQL", "MongoDB", "Redis", "Elasticsearch", "FastAPI", "Django", "Flask", "Spring", "Node.js", "GraphQL", "REST", "CI/CD", "Looker", "Tableau", "Power BI", "Pandas", "NumPy", "scikit-learn", "TensorFlow", "PyTorch", "LangChain", "Delta Lake", "Iceberg", "Hadoop"];
-    const skills = techKeywords.filter(s => description.toLowerCase().includes(s.toLowerCase()));
-    const expMatch = description.match(/(\d+)\+?\s*(?:to\s*\d+\+?\s*)?years?/i);
+    // Tech keyword scan — WORD-BOUNDARY matched so "Go" doesn't hit "governance",
+    // "R" doesn't hit everything, etc. This is only a hint sent to the AI; the AI
+    // re-reads the full JD and decides the real requirements.
+    const techKeywords = ["Python", "SQL", "Spark", "PySpark", "Kafka", "Airflow", "dbt", "Kubernetes", "Docker", "AWS", "GCP", "Azure", "Terraform", "Snowflake", "Redshift", "BigQuery", "Databricks", "MLflow", "Flink", "Trino", "React", "TypeScript", "JavaScript", "Java", "Scala", "Golang", "Rust", "C++", "C#", "PostgreSQL", "MySQL", "MongoDB", "Redis", "Elasticsearch", "FastAPI", "Django", "Flask", "Spring", "Node.js", "GraphQL", "Looker", "Tableau", "Power BI", "Pandas", "NumPy", "scikit-learn", "TensorFlow", "PyTorch", "LangChain", "Delta Lake", "Iceberg", "Hadoop", "Synapse", "Data Factory", "EMR", "Step Functions"];
+    const descLower = " " + description.toLowerCase() + " ";
+    const skills = techKeywords.filter(s => {
+      // escape regex specials, match on word boundaries (allow . + # in token)
+      const esc = s.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp("(^|[^a-z0-9])" + esc + "([^a-z0-9]|$)", "i");
+      return re.test(descLower);
+    });
 
-    return { title, company, location, description, skills, experience: expMatch ? `${expMatch[1]}+ years` : "Not specified" };
+    // Experience: only accept numbers that are actually a REQUIREMENT, not stray
+    // mentions like "For more than 50 years, the company...". We require the number
+    // to sit next to requirement words (experience / exp / yrs in role context).
+    let experience = "Not specified";
+    const expPatterns = [
+      /(\d{1,2})\s*\+?\s*(?:to\s*\d{1,2}\s*)?years?(?:\s+of)?\s+(?:relevant\s+|professional\s+|hands[- ]?on\s+)?experience/i,
+      /(?:minimum|min\.?|at least)\s+(\d{1,2})\s*\+?\s*years?/i,
+      /(\d{1,2})\s*\+?\s*years?\s+(?:in|as|with|of\s+\w+\s+(?:engineering|development|design))/i,
+    ];
+    for (const re of expPatterns) {
+      const m = description.match(re);
+      if (m && parseInt(m[1]) >= 1 && parseInt(m[1]) <= 40) {  // sane bound: 1-40 yrs
+        experience = `${m[1]}+ years`;
+        break;
+      }
+    }
+
+    return { title, company, location, description, skills, experience };
   }
 
   function currentJobId() {
@@ -201,7 +235,7 @@
 <div class="cc-header">
   <div class="cc-brand">
     <img id="cc-brand-img" width="26" height="26" style="border-radius:6px;display:block" />
-    <span>Apply<span style="color:#28a75a">in</span></span>
+    <span class="cc-wordmark"><span style="color:#3d8fec">Apply</span><span style="color:#3fba7f">in</span></span>
   </div>
   <div class="cc-header-actions">
     <button class="cc-hbtn" id="cc-settings-btn" title="Settings">
@@ -218,7 +252,7 @@
   <div class="cc-auth-wall" id="cc-auth-wall" style="display:none">
     <div class="cc-auth-logo">
       <img id="cc-auth-logo-img" width="56" height="56" style="border-radius:14px;display:block;margin-bottom:4px" />
-      <span>Apply<span style="color:#28a75a">in</span></span>
+      <span class="cc-wordmark"><span style="color:#3d8fec">Apply</span><span style="color:#3fba7f">in</span></span>
     </div>
     <p class="cc-auth-tagline">Know your fit before you apply.</p>
     <div class="cc-auth-tabs">
@@ -235,8 +269,12 @@
   </div>
 
   <!-- Resume + Analyse -->
-  <div class="cc-section-plain">
-    <div class="cc-upload-row">
+  <div class="cc-section-plain cc-on-grad">
+    <div class="cc-empty-hero">
+      <div class="t1">Know your fit before you apply</div>
+      <div class="t2">Upload your resume once — score any LinkedIn role.</div>
+    </div>
+    <div class="cc-upload-row" id="cc-upload-row">
       <label class="cc-upload-zone" id="cc-upload-zone" for="cc-file-input">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         <span id="cc-upload-label">Upload resume PDF</span>
@@ -253,103 +291,205 @@
   <!-- Results (hidden until analysis) -->
   <div id="cc-results" style="display:none">
 
-    <!-- Job context header — shows what role was analysed -->
-    <div id="cc-result-context" style="display:none;margin:10px 10px 0;padding:9px 12px;background:var(--grey-50);border:1px solid var(--border);border-radius:var(--r);display:flex;align-items:center;justify-content:space-between;gap:8px">
-      <div style="min-width:0">
-        <div id="cc-result-job-title" style="font-family:var(--font-d);font-size:12.5px;font-weight:600;color:var(--grey-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
-        <div id="cc-result-company" style="font-size:11px;color:var(--grey-600);margin-top:1px"></div>
+    <!-- Role chip + Fresh — sits in the saturated zone, white text -->
+    <div id="cc-result-context" style="display:none">
+      <div>
+        <div id="cc-result-job-title"></div>
+        <div id="cc-result-company"></div>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-        <span id="cc-cached-badge" style="display:none;align-items:center;font-size:10.5px;font-weight:600;color:#137333;background:#e6f4ea;padding:3px 8px;border-radius:10px;border:1px solid #ceead6">⚡ Free</span>
-        <button id="cc-reanalyse-btn" style="display:none;background:none;border:1px solid var(--grey-300);border-radius:16px;font-family:var(--font);font-size:11px;color:var(--grey-600);padding:4px 10px;cursor:pointer">↺ Fresh</button>
+        <span id="cc-cached-badge" style="display:none">⚡ Free</span>
+        <button id="cc-reanalyse-btn" style="display:none">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Fresh
+        </button>
       </div>
     </div>
 
     <!-- Score block -->
     <div class="cc-score-block" id="cc-score-block">
-      <div class="cc-score-header">
-        <div class="cc-score-left">
-          <div class="cc-score-ring-wrap" id="cc-score-circle">
-            <svg width="72" height="72" viewBox="0 0 72 72">
-              <circle class="cc-score-ring-bg" cx="36" cy="36" r="33"/>
-              <circle class="cc-score-ring-fill" id="cc-score-ring" cx="36" cy="36" r="33"/>
-            </svg>
-            <div class="cc-score-center">
-              <div class="cc-score-num" id="cc-score-num">–</div>
-              <div class="cc-score-pct" id="cc-score-label">%</div>
-            </div>
+
+      <!-- GREEN GRADIENT HEADER — role, apply indicator, arc, stats -->
+      <div class="cc-sc-header" id="cc-sc-header">
+
+        <!-- Row 1: eyebrow + apply pill -->
+        <div class="cc-sc-toprow">
+          <span class="cc-sc-eyebrow">Your fit</span>
+          <div class="cc-sc-apply-indicator" id="cc-apply-badge">
+            <span class="cc-sc-apply-dot"></span>
+            <span class="cc-sc-apply-text">–</span>
           </div>
         </div>
-        <div class="cc-score-right">
-          <div class="cc-score-title" id="cc-score-title-el">–</div>
-          <div class="cc-verdict" id="cc-verdict"></div>
-          <div class="cc-apply-badge" id="cc-apply-badge"></div>
+        <div class="cc-sc-role-name" id="cc-sc-role-name">–</div>
+
+        <!-- Full ring gauge -->
+        <div class="cc-sc-arc-wrap">
+          <svg width="178" height="178" viewBox="0 0 178 178" id="cc-score-circle" style="display:block">
+            <defs>
+              <linearGradient id="cc-arc-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="rgba(255,255,255,.55)"/>
+                <stop offset="100%" stop-color="rgba(255,255,255,1)"/>
+              </linearGradient>
+            </defs>
+            <circle cx="89" cy="89" r="76" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="13"/>
+            <circle id="cc-score-ring" cx="89" cy="89" r="76" fill="none" stroke="url(#cc-arc-grad)" stroke-width="13" stroke-linecap="round" stroke-dasharray="478" stroke-dashoffset="478" transform="rotate(-90 89 89)"/>
+            <text id="cc-score-num" x="89" y="93" text-anchor="middle" font-size="48" font-weight="800" fill="#fff" letter-spacing="-2" font-family="inherit">–</text>
+            <text id="cc-score-label" x="89" y="116" text-anchor="middle" font-size="10.5" font-weight="800" fill="rgba(255,255,255,.85)" letter-spacing="1.4" font-family="inherit">–</text>
+          </svg>
+        </div>
+
+        <!-- 4 stat cells inside the green header -->
+        <div class="cc-sc-stats">
+          <div class="cc-sc-stat"><div class="cc-sc-stat-l">Skills</div><div class="cc-sc-stat-v" id="cc-dash-match-val">–</div></div>
+          <div class="cc-sc-stat"><div class="cc-sc-stat-l">Exp</div><div class="cc-sc-stat-v" id="cc-dash-exp-val">–</div></div>
+          <div class="cc-sc-stat"><div class="cc-sc-stat-l">Gaps</div><div class="cc-sc-stat-v cc-sc-stat-amber" id="cc-dash-gaps-val">–</div></div>
+          <div class="cc-sc-stat"><div class="cc-sc-stat-l">Fixes</div><div class="cc-sc-stat-v cc-sc-stat-blue" id="cc-dash-fixes-val">–</div></div>
+        </div>
+
+      </div><!-- end green header -->
+
+      <!-- WHITE section: verdict + breakdown in ONE card -->
+      <div class="cc-sc-white">
+        <div class="cc-result-summary">
+          <div class="cc-score-verdict" id="cc-verdict"></div>
+          <div class="cc-breakdown-block" id="cc-score-breakdown" style="display:none">
+            <div class="cc-breakdown-heading">Score breakdown</div>
+            <div id="cc-breakdown-rows"></div>
+          </div>
         </div>
       </div>
-      <!-- Score breakdown — proof the resume was parsed -->
-      <div class="cc-score-breakdown" id="cc-score-breakdown" style="display:none">
-        <div class="cc-breakdown-title">How this score was calculated</div>
-        <div id="cc-breakdown-rows"></div>
-      </div>
+
     </div>
 
-    <!-- Why you fit / don't fit -->
-    <details class="cc-accordion" open>
-      <summary class="cc-acc-head">
-        <span class="cc-acc-icon"><span class="cc-acc-dot cc-acc-dot-green"></span>Fit analysis</span><svg class="cc-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-      </summary>
-      <div class="cc-acc-body" id="cc-fit-body"></div>
-    </details>
+    <!-- B-style summary accordions with teaser lines -->
+    <div class="cc-acc-list" id="cc-acc-list">
 
-    <!-- Skills gap -->
-    <details class="cc-accordion">
-      <summary class="cc-acc-head">
-        <span class="cc-acc-icon"><span class="cc-acc-dot cc-acc-dot-red"></span>Skills gap</span><svg class="cc-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-      </summary>
-      <div class="cc-acc-body" id="cc-skills-body"></div>
-    </details>
+      <details class="cc-acc" id="cc-acc-fit" open>
+        <summary class="cc-acc-head">
+          <span class="cc-acc-left">
+            <span class="cc-acc-dot" style="background:var(--green)"></span>
+            <span class="cc-acc-title">Fit analysis</span>
+          </span>
+          <span class="cc-acc-right">
+            <span class="cc-acc-badge" id="cc-badge-fit"></span>
+            <svg class="cc-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </span>
+        </summary>
+        <div class="cc-acc-teaser" id="cc-teaser-fit"></div>
+        <div class="cc-acc-body" id="cc-fit-body"></div>
+      </details>
 
-    <!-- Improvement plan -->
-    <details class="cc-accordion">
-      <summary class="cc-acc-head">
-        <span class="cc-acc-icon"><span class="cc-acc-dot cc-acc-dot-blue"></span>Improvement plan</span><svg class="cc-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-      </summary>
-      <div class="cc-acc-body" id="cc-plan-body"></div>
-    </details>
+      <details class="cc-acc" id="cc-acc-skills">
+        <summary class="cc-acc-head">
+          <span class="cc-acc-left">
+            <span class="cc-acc-dot" style="background:var(--red)"></span>
+            <span class="cc-acc-title">Skills gap</span>
+          </span>
+          <span class="cc-acc-right">
+            <span class="cc-acc-badge" id="cc-badge-skills"></span>
+            <svg class="cc-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </span>
+        </summary>
+        <div class="cc-acc-teaser" id="cc-teaser-skills"></div>
+        <div class="cc-acc-body" id="cc-skills-body"></div>
+      </details>
 
-    <!-- Resume suggestions -->
-    <details class="cc-accordion">
-      <summary class="cc-acc-head">
-        <span class="cc-acc-icon"><span class="cc-acc-dot cc-acc-dot-yellow"></span>Resume improvements</span><svg class="cc-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-      </summary>
-      <div class="cc-acc-body" id="cc-resume-body"></div>
-    </details>
+      <details class="cc-acc" id="cc-acc-plan">
+        <summary class="cc-acc-head">
+          <span class="cc-acc-left">
+            <span class="cc-acc-dot" style="background:var(--accent)"></span>
+            <span class="cc-acc-title">Improvement plan</span>
+          </span>
+          <span class="cc-acc-right">
+            <span class="cc-acc-badge" id="cc-badge-plan"></span>
+            <svg class="cc-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </span>
+        </summary>
+        <div class="cc-acc-teaser" id="cc-teaser-plan"></div>
+        <div class="cc-acc-body" id="cc-plan-body"></div>
+      </details>
 
-    <!-- Interview guide -->
-    <details class="cc-accordion">
-      <summary class="cc-acc-head">
-        <span class="cc-acc-icon"><span class="cc-acc-dot cc-acc-dot-purple"></span>Interview guide</span><svg class="cc-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-      </summary>
-      <div class="cc-acc-body" id="cc-interview-body"></div>
-    </details>
+      <details class="cc-acc" id="cc-acc-resume">
+        <summary class="cc-acc-head">
+          <span class="cc-acc-left">
+            <span class="cc-acc-dot" style="background:var(--amber)"></span>
+            <span class="cc-acc-title">Resume improvements</span>
+          </span>
+          <span class="cc-acc-right">
+            <span class="cc-acc-badge" id="cc-badge-resume"></span>
+            <svg class="cc-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </span>
+        </summary>
+        <div class="cc-acc-teaser" id="cc-teaser-resume"></div>
+        <div class="cc-acc-body" id="cc-resume-body"></div>
+      </details>
 
-    <!-- Next step CTA -->
+      <details class="cc-acc" id="cc-acc-interview">
+        <summary class="cc-acc-head">
+          <span class="cc-acc-left">
+            <span class="cc-acc-dot" style="background:#7c3aed"></span>
+            <span class="cc-acc-title">Interview prep</span>
+          </span>
+          <span class="cc-acc-right">
+            <span class="cc-acc-badge" id="cc-badge-interview"></span>
+            <svg class="cc-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </span>
+        </summary>
+        <div class="cc-acc-teaser" id="cc-teaser-interview"></div>
+        <div class="cc-acc-body" id="cc-interview-body"></div>
+      </details>
+
+    </div>
+
     <div class="cc-next-step" id="cc-next-step"></div>
 
   </div>
 
-  <!-- Loading -->
+  <!-- Loading screen -->
   <div class="cc-loading" id="cc-loading" style="display:none">
-    <div class="cc-loading-bar"><div class="cc-loading-fill"></div></div>
-    <p id="cc-loading-msg">Analysing role…</p>
+    <div class="cc-ld-top">
+      <div class="cc-ld-ctx">
+        <div class="cc-ld-eyebrow">Analysing fit for</div>
+        <div class="cc-ld-role" id="cc-ld-role">Loading…</div>
+      </div>
+    </div>
+    <div class="cc-ld-mid">
+      <div class="cc-ld-logo-zone">
+        <img id="cc-loading-logo-img" class="cc-ld-logo" alt="Applyin" />
+      </div>
+      <div class="cc-ld-live">
+        <div class="cc-ld-stage" id="cc-loading-msg">Getting started</div>
+        <div class="cc-ld-detail" id="cc-ld-detail">Preparing your analysis…</div>
+      </div>
+    </div>
+    <div class="cc-ld-bottom">
+      <div class="cc-ld-prog-wrap">
+        <div class="cc-ld-prog-head">
+          <span class="cc-ld-step-lbl" id="cc-ld-step-lbl">Step 1 of 5</span>
+          <span class="cc-ld-pct" id="cc-loading-pct">15%</span>
+        </div>
+        <div class="cc-ld-bar-track"><div class="cc-ld-bar" id="cc-loading-arc"></div></div>
+      </div>
+      <div class="cc-ld-fact-zone">
+        <div class="cc-ld-fact-label">Did you know?</div>
+        <div class="cc-ld-fact" id="cc-loading-fact"></div>
+      </div>
+    </div>
   </div>
 
-  <!-- Paywall -->
-  <div class="cc-paywall" id="cc-paywall" style="display:none">
-    <div class="cc-paywall-title">Out of credits</div>
-    <p class="cc-paywall-desc">You've used all your credits. Top up to continue getting personalised job analysis.</p>
-    <button class="cc-analyse-btn" id="cc-upgrade-cta">Upgrade to Pro →</button>
-    <p class="cc-paywall-sub">Unlimited · Resume AI · Full interview prep</p>
+    <!-- Paywall -->
+  <div class="cc-paywall cc-on-grad" id="cc-paywall" style="display:none">
+    <div class="cc-paywall-icon">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    </div>
+    <div class="cc-paywall-title">You're out of credits</div>
+    <p class="cc-paywall-desc">Top up to keep scoring your fit, generating resume fixes and interview prep.</p>
+    <div class="cc-paywall-feats">
+      <div class="cc-paywall-feat"><span class="cc-paywall-feat-ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></span><span>Unlimited fit analyses</span></div>
+      <div class="cc-paywall-feat"><span class="cc-paywall-feat-ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></span><span>AI resume rewrites</span></div>
+      <div class="cc-paywall-feat"><span class="cc-paywall-feat-ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></span><span>Full interview prep guides</span></div>
+    </div>
+    <button class="cc-analyse-btn cc-btn-white" id="cc-upgrade-cta">Upgrade to Pro →</button>
+    <p class="cc-paywall-sub">From $6/mo · cancel anytime</p>
   </div>
 </div>
 
@@ -357,35 +497,63 @@
 <div id="cc-settings" style="display:none" class="cc-scroll">
   <div class="cc-settings-head">
     <button class="cc-hbtn" id="cc-settings-back">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 18 9 12 15 6"/></svg>
     </button>
     <span class="cc-settings-title">Account</span>
   </div>
-  <div class="cc-theme-toggle">
-    <span class="cc-theme-toggle-label">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-      Dark mode
-    </span>
-    <label class="cc-toggle-switch" id="cc-theme-toggle">
-      <input type="checkbox" id="cc-theme-input">
-      <div class="cc-toggle-track"></div>
-      <div class="cc-toggle-thumb"></div>
-    </label>
+
+  <!-- profile + credit meter (white on brand gradient) -->
+  <div class="cc-acct-hero cc-on-grad">
+    <div class="cc-acct-profile">
+      <div class="cc-acct-avatar" id="cc-acct-avatar">A</div>
+      <div class="cc-acct-id">
+        <div class="cc-acct-name" id="cc-acct-name">Your account</div>
+        <div class="cc-acct-email" id="cc-s-email">—</div>
+      </div>
+    </div>
+    <div class="cc-acct-credits">
+      <div class="cc-acct-credits-top">
+        <div>
+          <div class="cc-acct-credits-num" id="cc-s-usage">Loading…</div>
+          <div class="cc-acct-credits-lbl">credits remaining</div>
+        </div>
+        <button class="cc-acct-buy" id="cc-buy-more-btn">Buy more</button>
+      </div>
+    </div>
   </div>
-  <div class="cc-setting-group">
-    <div class="cc-setting-label">Signed in as</div>
-    <div class="cc-setting-desc" id="cc-s-email">—</div>
-    <button class="cc-text-btn cc-danger-btn" id="cc-logout-btn">Sign out</button>
-  </div>
-  <div class="cc-setting-group">
-    <div class="cc-setting-label">Resume</div>
-    <div class="cc-setting-desc" id="cc-s-resume-status">No resume saved.</div>
-    <button class="cc-text-btn cc-danger-btn" id="cc-clear-resume" style="display:none">Clear resume</button>
-  </div>
-  <div class="cc-setting-group">
-    <div class="cc-setting-label">Credits</div>
-    <div class="cc-setting-desc" id="cc-s-usage">Loading…</div>
-    <button class="cc-btn-buy-small" id="cc-buy-more-btn">Buy more credits →</button>
+
+  <div class="cc-settings-flow">
+    <!-- Resume -->
+    <div class="cc-card cc-sett-card">
+      <div class="cc-sett-card-label">Resume</div>
+      <div class="cc-sett-row">
+        <span class="cc-sett-row-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+        <div class="cc-sett-row-body">
+          <div class="cc-sett-row-title">Your resume</div>
+          <div class="cc-sett-row-sub" id="cc-s-resume-status">No resume saved.</div>
+        </div>
+        <button class="cc-sett-pill cc-danger" id="cc-clear-resume" style="display:none">Remove</button>
+      </div>
+    </div>
+
+    <!-- Preferences -->
+    <div class="cc-card cc-sett-card">
+      <div class="cc-sett-card-label">Preferences</div>
+      <div class="cc-sett-row">
+        <span class="cc-sett-row-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span>
+        <div class="cc-sett-row-body">
+          <div class="cc-sett-row-title">Dark mode</div>
+          <div class="cc-sett-row-sub">Easier on the eyes at night</div>
+        </div>
+        <label class="cc-toggle-switch" id="cc-theme-toggle">
+          <input type="checkbox" id="cc-theme-input">
+          <div class="cc-toggle-track"></div>
+          <div class="cc-toggle-thumb"></div>
+        </label>
+      </div>
+    </div>
+
+    <button class="cc-signout-btn" id="cc-logout-btn">Sign out</button>
   </div>
 </div>`;
   }
@@ -409,13 +577,10 @@
       pullTab.title = "Open Applyin";
       // Use the actual Applyin logo in the pull tab
       const iconUrl = chrome.runtime.getURL('icons/icon48.png');
-      pullTab.innerHTML = `
-        <img src="${iconUrl}" width="26" height="26" style="border-radius:6px;display:block" />
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.8)" stroke-width="3" style="margin-top:2px">
-          <polyline points="9 18 15 12 9 6"/>
-        </svg>`;
+      pullTab.innerHTML = `<img src="${iconUrl}" width="30" height="30" style="display:block" />`;
       document.body.appendChild(pullTab);
       pullTab.addEventListener("click", expandSidebar);
+      chrome.storage.local.get("last_fit", ({ last_fit }) => { if (last_fit) applyPullTabFit(last_fit); });
     }
 
     wire();
@@ -516,6 +681,7 @@
     sidebarEl.querySelector("#cc-results").style.display = "none";
     sidebarEl.querySelector("#cc-paywall").style.display = "none";
     sidebarEl.querySelector(".cc-retry-bar")?.remove();
+    sidebarEl.classList.remove("cc-has-fit", "cc-fit-strong", "cc-fit-medium", "cc-fit-weak");
     setAnalysisSteps();
     setLoading(true, "Analysing your fit…");
     setTimeout(() => setProgressStep(0, true) || setProgressStep(1, false, true), 200);
@@ -575,7 +741,7 @@
                   const err = data.analysis_error || "Unknown error";
                   log.error('Analysis failed:', err);
                   if (err === "NOT_LOGGED_IN" || err === "SESSION_EXPIRED") { showAuthWall(); return; }
-                  if (err === "INSUFFICIENT_CREDITS") { sidebarEl.querySelector("#cc-paywall").style.display = "block"; return; }
+                  if (err === "INSUFFICIENT_CREDITS") { sidebarEl.classList.remove("cc-has-fit","cc-fit-strong","cc-fit-medium","cc-fit-weak"); const pw = sidebarEl.querySelector("#cc-paywall"); if (pw) pw.style.display = "flex"; const sp = sidebarEl.querySelector(".cc-section-plain"); if (sp) sp.style.display = "none"; return; }
                   showRetryBar(err.slice(0, 80)); return;
                 }
                 if (data.analysis_status === "done") {
@@ -613,49 +779,47 @@
 
   // ── Score breakdown helper ─────────────────────────────────────────────────
   function buildScoreBreakdown(d, job, hasResume) {
-    // hasResume = whether a resume PDF was stored and sent to the AI
-    const score = d.match_score;
+    // Use the score_breakdown object returned by the API — every number here
+    // was computed server-side from the AI's weighted sub-scores, so what the
+    // user sees is exactly what the backend calculated. Nothing is derived or
+    // estimated on the client.
+    const bd = d.score_breakdown || {};
 
-    const totalSkills = job.skills.length;
-    const missingCount = (d.missing_skills || []).length;
-    const matchedSkills = Math.max(0, totalSkills - missingCount);
-    const skillPct = totalSkills > 0 ? Math.round((matchedSkills / Math.max(1, totalSkills)) * 100) : 0;
-    const expPct = d.fit_level === "strong" ? Math.min(100, score + 10)
-      : d.fit_level === "medium" ? Math.min(85, score + 5)
-        : Math.max(10, score - 5);
-    const keywordPct = totalSkills > 0 ? Math.round((matchedSkills / totalSkills) * 100) : 0;
+    // Weights mirror SCORE_WEIGHTS in ai.py
+    const WEIGHTS = {
+      skills_match:         { label: "Skills match",   weight: 35, evidenceKey: "skills_evidence" },
+      experience_match:     { label: "Experience",      weight: 25, evidenceKey: "experience_evidence" },
+      domain_match:         { label: "Domain fit",      weight: 20, evidenceKey: "domain_evidence" },
+      qualifications_match: { label: "Qualifications",  weight: 10, evidenceKey: "qualifications_evidence" },
+      soft_skills_match:    { label: "Soft skills",     weight: 10, evidenceKey: "soft_skills_evidence" },
+    };
 
-    const rows = [
-      { label: "Skills match", pct: skillPct, detail: `${matchedSkills} / ${totalSkills} from JD` },
-      { label: "Experience", pct: expPct, detail: job.experience !== "Not specified" ? `JD: ${job.experience}` : "See JD" },
-      { label: "Keyword overlap", pct: keywordPct, detail: `${matchedSkills} keywords matched` },
-      { label: "Overall fit", pct: score, detail: `${score}% match` },
-    ];
+    const rows = Object.entries(WEIGHTS).map(([key, meta]) => ({
+      label:   meta.label,
+      weight:  meta.weight,
+      pct:     typeof bd[key] === "number" ? bd[key] : 0,
+      detail:  bd[meta.evidenceKey] || "",
+    }));
 
     const breakdown = sidebarEl.querySelector("#cc-score-breakdown");
-    const rowsEl = sidebarEl.querySelector("#cc-breakdown-rows");
+    const rowsEl    = sidebarEl.querySelector("#cc-breakdown-rows");
     if (!breakdown || !rowsEl) return;
 
+    // Clean bars only — the truncated evidence text is gone. Full evidence shows
+    // on hover (title attr). The "resume analysed" confirmation is the slim strip
+    // below the card, so it is NOT repeated here.
     rowsEl.innerHTML = rows.map(r => {
       const color = r.pct >= 70 ? "#057642" : r.pct >= 45 ? "#d97706" : "#b91c1c";
-      return `<div class="cc-breakdown-row">
-        <span class="cc-breakdown-label">${r.label}</span>
+      return `<div class="cc-breakdown-row" title="${(r.detail || "").replace(/"/g,"&quot;")}">
+        <span class="cc-breakdown-label">${r.label}<span class="cc-breakdown-weight">${r.weight}%</span></span>
         <div class="cc-breakdown-bar-wrap">
-          <div class="cc-breakdown-bar-bg">
-            <div class="cc-breakdown-bar-fill" style="width:${r.pct}%;background:${color}"></div>
-          </div>
+          <div class="cc-breakdown-bar-fill" style="width:${r.pct}%;background:${color}"></div>
         </div>
         <span class="cc-breakdown-val" style="color:${color}">${r.pct}%</span>
       </div>`;
-    }).join("") + (hasResume
-      ? `<div class="cc-breakdown-row cc-breakdown-confirm">
-           <span>✓ Resume analysed against this role</span>
-         </div>`
-      : `<div class="cc-breakdown-row cc-breakdown-warn">
-           <span>⚠ No resume detected — score is JD-only estimate</span>
-         </div>`);
+    }).join("");
 
-    breakdown.style.display = "block";
+    breakdown.style.display = "";  // <details> visible by default now
   }
 
   // ── Render results ─────────────────────────────────────────────────────────
@@ -669,12 +833,24 @@
   }
 
   function setLoading(show, msg) {
-    const el = sidebarEl.querySelector("#cc-loading");
-    const btn = sidebarEl.querySelector("#cc-analyse-btn");
-    el.style.display = show ? "block" : "none";
-    if (msg) sidebarEl.querySelector("#cc-loading-msg").textContent = msg;
-    btn.disabled = show;
-    btn.textContent = show ? "Matching resume to role…" : "Analyse fit";
+    const el      = sidebarEl.querySelector("#cc-loading");
+    const btn     = sidebarEl.querySelector("#cc-analyse-btn");
+    const strip   = sidebarEl.querySelector("#cc-controls-strip, .cc-section-plain");
+    const steps   = sidebarEl.querySelector("#cc-steps");
+    const main    = sidebarEl.querySelector("#cc-main");
+
+    el.style.display = show ? "flex" : "none";
+
+    // When loading: hide everything else in cc-main so there's nothing to scroll
+    if (strip) strip.style.display  = show ? "none" : "";
+    if (steps) steps.style.display  = "none";  // steps live inside loading screen now
+    // Give cc-main itself no scroll while loading (loading fills it completely)
+    if (main)  main.style.overflow  = show ? "hidden" : "";
+
+    if (msg) { const m = sidebarEl.querySelector("#cc-loading-msg"); if (m) m.textContent = msg; }
+    if (!show) { btn.disabled = false; btn.textContent = "Analyse fit"; }
+    if (show)  { try { startFacts(); } catch(e) {} }
+    else       { try { stopFacts();  } catch(e) {} }
   }
 
   function toast(msg, type) {
@@ -748,9 +924,116 @@
     if (poly) poly.setAttribute("points", "9 18 15 12 9 6");
   }
 
+  // ── Loading facts (hoisted so setLoading can call them before wire()) ─────
+  const FACTS = [
+    "Applyin reads the full JD, not just the title — so the gaps are real ones.",
+    "Your resume is compared line-by-line against every requirement in the role.",
+    "85% of job seekers apply to roles they are underqualified for. You won't.",
+    "The interview guide is tailored to this specific company's known style.",
+    "Applyin never stores your resume on a server — it stays in your browser.",
+    "Credits are only spent on new analyses. Cached results are always free.",
+    "Your score is calculated from 5 weighted dimensions, not one gut feeling.",
+    "The improvement plan only lists actions that close real JD gaps.",
+  ];
+  let _factIdx = 0, _factTimer = null, _factPct = 0;
+  // Step data for the loading screen
+
+
+  const LOADING_STEPS = [
+    { stage:"Reading job description",  detail:"Extracting every requirement, skill and qualification from the JD",       pct:15, step:"Step 1 of 5" },
+    { stage:"Loading your resume",      detail:"Parsing your resume PDF and reading every role, skill and achievement",    pct:32, step:"Step 2 of 5" },
+    { stage:"Matching skills to role",  detail:"Cross-referencing your profile against each requirement in the JD",       pct:54, step:"Step 3 of 5" },
+    { stage:"Scoring your fit",         detail:"Weighing skills, experience, domain fit, qualifications and soft skills", pct:72, step:"Step 4 of 5" },
+    { stage:"Building your report",     detail:"Compiling gaps, improvement plan, resume fixes and interview guide",       pct:90, step:"Step 5 of 5" },
+  ];
+
+  function startFacts() {
+    let _stepIdx = 0; _factIdx = 0;
+    const fEl   = sidebarEl.querySelector("#cc-loading-fact");
+    const bar   = sidebarEl.querySelector("#cc-loading-arc");
+    const pEl   = sidebarEl.querySelector("#cc-loading-pct");
+    const msgEl = sidebarEl.querySelector("#cc-loading-msg");
+    const detEl = sidebarEl.querySelector("#cc-ld-detail");
+    const slEl  = sidebarEl.querySelector("#cc-ld-step-lbl");
+    const roleEl= sidebarEl.querySelector("#cc-ld-role");
+    const logoEl= sidebarEl.querySelector("#cc-loading-logo-img");
+    if (!fEl) return;
+
+    // Set logo
+    try { if (logoEl) logoEl.src = chrome.runtime.getURL("icons/icon128.png"); } catch(e) {}
+
+    // Set role from job chip
+    try {
+      const chip = sidebarEl.querySelector("#cc-job-chip");
+      if (roleEl && chip) roleEl.textContent = chip.textContent.trim() || "Analysing your fit";
+    } catch(e) {}
+
+    // Init step 0
+    const s0 = LOADING_STEPS[0];
+    if (msgEl) msgEl.textContent = s0.stage;
+    if (detEl) detEl.textContent = s0.detail;
+    if (slEl)  slEl.textContent  = s0.step;
+    if (pEl)   pEl.textContent   = s0.pct + "%";
+    if (bar)   { bar.style.transition = "none"; bar.style.width = s0.pct + "%"; }
+    fEl.textContent = FACTS[0]; fEl.style.opacity = "1";
+
+    if (_factTimer) clearInterval(_factTimer);
+    _factTimer = setInterval(() => {
+      _stepIdx = Math.min(_stepIdx + 1, LOADING_STEPS.length - 1);
+      const s = LOADING_STEPS[_stepIdx];
+
+      [msgEl, detEl].forEach(el => {
+        if (!el) return;
+        el.style.transition = "opacity .22s,transform .22s";
+        el.style.opacity = "0"; el.style.transform = "translateY(5px)";
+      });
+      setTimeout(() => {
+        if (msgEl) msgEl.textContent = s.stage;
+        if (detEl) detEl.textContent = s.detail;
+        if (slEl)  slEl.textContent  = s.step;
+        if (pEl)   pEl.textContent   = s.pct + "%";
+        if (bar)   { bar.style.transition = "width .9s cubic-bezier(.4,0,.2,1)"; bar.style.width = s.pct + "%"; }
+        [msgEl, detEl].forEach(el => { if (el) { el.style.opacity = "1"; el.style.transform = "none"; } });
+      }, 250);
+
+      _factIdx = (_factIdx + 1) % FACTS.length;
+      fEl.style.transition = "opacity .3s"; fEl.style.opacity = "0";
+      setTimeout(() => { fEl.textContent = FACTS[_factIdx]; fEl.style.opacity = "1"; }, 300);
+    }, 3500);
+  }
+
+  function stopFacts() {
+    if (_factTimer) { clearInterval(_factTimer); _factTimer = null; }
+    const pEl   = sidebarEl.querySelector("#cc-loading-pct");
+    const bar   = sidebarEl.querySelector("#cc-loading-arc");
+    const msgEl = sidebarEl.querySelector("#cc-loading-msg");
+    const detEl = sidebarEl.querySelector("#cc-ld-detail");
+    if (pEl)   pEl.textContent   = "100%";
+    if (bar)   { bar.style.transition = "width .5s ease"; bar.style.width = "100%"; }
+    if (msgEl) msgEl.textContent = "Analysis complete";
+    if (detEl) detEl.textContent = "Opening your results…";
+  }
+
   function wire() {
     // Collapse button
     sidebarEl.querySelector("#cc-collapse-btn").addEventListener("click", collapseSidebar);
+
+    // Loading screen — set logo img
+    try {
+      const li = sidebarEl.querySelector("#cc-loading-logo-img");
+      if (li) li.src = chrome.runtime.getURL("icons/icon32.png");
+    } catch(e) {}
+
+    // B+C accordion — only one open at a time, toggled via native <details>
+    sidebarEl.querySelectorAll(".cc-acc").forEach(det => {
+      det.addEventListener("toggle", () => {
+        if (det.open) {
+          sidebarEl.querySelectorAll(".cc-acc").forEach(other => {
+            if (other !== det) other.open = false;
+          });
+        }
+      });
+    });
 
     // Settings / account
     sidebarEl.querySelector("#cc-settings-btn").addEventListener("click", () => showSettings(true));
@@ -811,6 +1094,7 @@
   // ── Auth & Settings ────────────────────────────────────────────────────────
   function showSettings(show) {
     if (show) log.info('Settings panel opened');
+    const hdr = sidebarEl.querySelector(".cc-header"); if (hdr) hdr.style.display = show ? "none" : "flex";
     sidebarEl.querySelector("#cc-main").style.display = show ? "none" : "block";
     sidebarEl.querySelector("#cc-settings").style.display = show ? "block" : "none";
     if (show) { refreshSettingsResume(); refreshSettingsCredits(); }
@@ -819,14 +1103,17 @@
   function refreshSettingsCredits() {
     const el = sidebarEl?.querySelector("#cc-s-usage");
     const emailEl = sidebarEl?.querySelector("#cc-s-email");
+    const avEl = sidebarEl?.querySelector("#cc-acct-avatar");
+    const nmEl = sidebarEl?.querySelector("#cc-acct-name");
     chrome.storage.local.get("user", ({ user }) => {
-      if (emailEl && user?.email) emailEl.textContent = user.email;
-      if (el) el.textContent = "Loading…";
+      const email = user?.email || "";
+      if (emailEl) emailEl.textContent = email || "—";
+      if (avEl && email) avEl.textContent = email.charAt(0).toUpperCase();
+      if (nmEl) nmEl.textContent = email ? email.split("@")[0] : "Your account";
+      if (el) el.textContent = "…";
       safeSend({ type: "GET_CREDITS" }, res => {
         if (chrome.runtime.lastError || !res) { if (el) el.textContent = "—"; return; }
-        if (el) el.textContent = res?.credits != null
-          ? `${res.credits} credit${res.credits !== 1 ? "s" : ""} remaining`
-          : "Could not load";
+        if (el) el.textContent = res?.credits != null ? String(res.credits) : "—";
       });
     });
   }
@@ -921,6 +1208,8 @@
     if (btn) btn.style.display = "none";
     if (steps) steps.style.display = "none";
     if (results) results.style.display = "none";
+    const secPlain = sidebarEl?.querySelector(".cc-section-plain"); if (secPlain) secPlain.style.display = "none";
+    sidebarEl?.classList.remove("cc-has-fit", "cc-fit-strong", "cc-fit-medium", "cc-fit-weak");
   }
 
   function updateCreditPill(credits) {
@@ -972,6 +1261,14 @@
     } else {
       chip.textContent = "⚠ Job not detected — try scrolling";
       chip.classList.add("cc-chip-warn");
+    }
+    // New job context with no result yet → restore the upload/empty state and
+    // drop any prior fit colour so the panel rides the brand gradient again.
+    const res = sidebarEl?.querySelector("#cc-results");
+    if (res && res.style.display === "none") {
+      const sec = sidebarEl?.querySelector(".cc-section-plain");
+      if (sec) sec.style.display = "flex";
+      sidebarEl.classList.remove("cc-has-fit", "cc-fit-strong", "cc-fit-medium", "cc-fit-weak");
     }
   }
 
@@ -1101,7 +1398,7 @@
         <span class="cc-step-dot"></span>
         <span class="cc-step-label">${s.label}</span>
       </div>`).join('');
-    el.style.display = 'block';
+    el.style.display = 'flex';
   }
 
   function setProgressStep(idx, done, active) {
@@ -1143,52 +1440,59 @@
 
   // ── Score breakdown helper ─────────────────────────────────────────────────
   function buildScoreBreakdown(d, job, hasResume) {
-    // hasResume = whether a resume PDF was stored and sent to the AI
-    const score = d.match_score;
+    // Use the score_breakdown object returned by the API — every number here
+    // was computed server-side from the AI's weighted sub-scores, so what the
+    // user sees is exactly what the backend calculated. Nothing is derived or
+    // estimated on the client.
+    const bd = d.score_breakdown || {};
 
-    const totalSkills = job.skills.length;
-    const missingCount = (d.missing_skills || []).length;
-    const matchedSkills = Math.max(0, totalSkills - missingCount);
-    const skillPct = totalSkills > 0 ? Math.round((matchedSkills / Math.max(1, totalSkills)) * 100) : 0;
-    const expPct = d.fit_level === "strong" ? Math.min(100, score + 10)
-      : d.fit_level === "medium" ? Math.min(85, score + 5)
-        : Math.max(10, score - 5);
-    const keywordPct = totalSkills > 0 ? Math.round((matchedSkills / totalSkills) * 100) : 0;
+    // Weights mirror SCORE_WEIGHTS in ai.py
+    const WEIGHTS = {
+      skills_match:         { label: "Skills match",   weight: 35, evidenceKey: "skills_evidence" },
+      experience_match:     { label: "Experience",      weight: 25, evidenceKey: "experience_evidence" },
+      domain_match:         { label: "Domain fit",      weight: 20, evidenceKey: "domain_evidence" },
+      qualifications_match: { label: "Qualifications",  weight: 10, evidenceKey: "qualifications_evidence" },
+      soft_skills_match:    { label: "Soft skills",     weight: 10, evidenceKey: "soft_skills_evidence" },
+    };
 
-    const rows = [
-      { label: "Skills match", pct: skillPct, detail: `${matchedSkills} / ${totalSkills} from JD` },
-      { label: "Experience", pct: expPct, detail: job.experience !== "Not specified" ? `JD: ${job.experience}` : "See JD" },
-      { label: "Keyword overlap", pct: keywordPct, detail: `${matchedSkills} keywords matched` },
-      { label: "Overall fit", pct: score, detail: `${score}% match` },
-    ];
+    const rows = Object.entries(WEIGHTS).map(([key, meta]) => ({
+      label:   meta.label,
+      weight:  meta.weight,
+      pct:     typeof bd[key] === "number" ? bd[key] : 0,
+      detail:  bd[meta.evidenceKey] || "",
+    }));
 
     const breakdown = sidebarEl.querySelector("#cc-score-breakdown");
-    const rowsEl = sidebarEl.querySelector("#cc-breakdown-rows");
+    const rowsEl    = sidebarEl.querySelector("#cc-breakdown-rows");
     if (!breakdown || !rowsEl) return;
 
+    // Clean bars only — the truncated evidence text is gone. Full evidence shows
+    // on hover (title attr). The "resume analysed" confirmation is the slim strip
+    // below the card, so it is NOT repeated here.
     rowsEl.innerHTML = rows.map(r => {
       const color = r.pct >= 70 ? "#057642" : r.pct >= 45 ? "#d97706" : "#b91c1c";
-      return `<div class="cc-breakdown-row">
-        <span class="cc-breakdown-label">${r.label}</span>
+      return `<div class="cc-breakdown-row" title="${(r.detail || "").replace(/"/g,"&quot;")}">
+        <span class="cc-breakdown-label">${r.label}<span class="cc-breakdown-weight">${r.weight}%</span></span>
         <div class="cc-breakdown-bar-wrap">
-          <div class="cc-breakdown-bar-bg">
-            <div class="cc-breakdown-bar-fill" style="width:${r.pct}%;background:${color}"></div>
-          </div>
+          <div class="cc-breakdown-bar-fill" style="width:${r.pct}%;background:${color}"></div>
         </div>
         <span class="cc-breakdown-val" style="color:${color}">${r.pct}%</span>
       </div>`;
-    }).join("") + (hasResume
-      ? `<div class="cc-breakdown-row cc-breakdown-confirm">
-           <span>✓ Resume analysed against this role</span>
-         </div>`
-      : `<div class="cc-breakdown-row cc-breakdown-warn">
-           <span>⚠ No resume detected — score is JD-only estimate</span>
-         </div>`);
+    }).join("");
 
-    breakdown.style.display = "block";
+    breakdown.style.display = "";  // <details> visible by default now
   }
 
   // ── Render results ─────────────────────────────────────────────────────────
+  // Soften accidental ALL-CAPS emphasis the AI sometimes adds (e.g. "missing for
+  // THIS role") so copy reads naturally. Only common emphasis words are touched —
+  // real acronyms (AWS, SQL, API…) are left alone.
+  function softenCaps(str) {
+    if (!str || typeof str !== "string") return str || "";
+    return str.replace(/\b(THIS|THESE|THAT|THOSE|YOUR|EVERY|ONLY|MUST|KEY|EXACTLY|NEVER|ALWAYS|REALLY|VERY|NOT|HERE|ROLE)\b/g,
+      m => m.toLowerCase());
+  }
+
   function renderResults(d, job) {
     log.info('renderResults called, score:', d?.match_score, 'fit:', d?.fit_level);
     try {
@@ -1209,129 +1513,376 @@
       if (reBtn) reBtn.style.display = "inline-block";
 
       // Score block
-      const scoreEl = sidebarEl.querySelector("#cc-score-num");
-      const labelEl = sidebarEl.querySelector("#cc-score-label");
-      const circleEl = sidebarEl.querySelector("#cc-score-circle");
-      const verdictEl = sidebarEl.querySelector("#cc-verdict");
-      const applyEl = sidebarEl.querySelector("#cc-apply-badge");
+      const scoreEl  = sidebarEl.querySelector("#cc-score-num");
+      const labelEl  = sidebarEl.querySelector("#cc-score-label");
+      const verdictEl= sidebarEl.querySelector("#cc-verdict");
+      const headerEl = sidebarEl.querySelector("#cc-sc-header");
+      const applyEl  = sidebarEl.querySelector("#cc-apply-badge");
+      const roleEl   = sidebarEl.querySelector("#cc-sc-role-name");
 
-      const isGreen = d.match_score >= 75;
-      const isAmber = d.match_score >= 45;
-      const textColor = isGreen ? "#137333" : isAmber ? "#7a4f00" : "#9e2114";
+      // Recolour the WHOLE panel gradient + accents to the fit level
+      const fit = d.fit_level || (d.match_score >= 75 ? "strong" : d.match_score >= 45 ? "medium" : "weak");
+      sidebarEl.classList.remove("cc-fit-strong", "cc-fit-medium", "cc-fit-weak");
+      sidebarEl.classList.add("cc-fit-" + fit, "cc-has-fit");
+      lastFit = fit;
+      applyPullTabFit(fit);
+      chrome.storage.local.set({ last_fit: fit });
+      // The hero owns the saturated top now — hide the upload/empty controls
+      const _secPlain = sidebarEl.querySelector(".cc-section-plain");
+      if (_secPlain) _secPlain.style.display = "none";
 
-      // Animate SVG ring
+      // Set role name from job context
+      if (roleEl) roleEl.textContent = (job?.title && job?.company)
+        ? `${job.title} · ${job.company}` : (job?.title || "–");
+
+      // Ring meter — full circle, circumference = 2π·76 ≈ 478
+      const arcTotal = 478;
       const ringEl = sidebarEl.querySelector("#cc-score-ring");
       if (ringEl) {
-        const circumference = 2 * Math.PI * 33;
-        const offset = circumference - (d.match_score / 100) * circumference;
-        ringEl.style.strokeDasharray = circumference;
-        ringEl.style.strokeDashoffset = circumference;
-        requestAnimationFrame(() => setTimeout(() => { ringEl.style.strokeDashoffset = offset; }, 50));
-        ringEl.setAttribute("class", "cc-score-ring-fill " + (isGreen ? "cc-ring-green" : isAmber ? "cc-ring-amber" : "cc-ring-red"));
+        const offset = arcTotal - (d.match_score / 100) * arcTotal;
+        ringEl.style.strokeDasharray = arcTotal;
+        ringEl.style.strokeDashoffset = arcTotal;
+        requestAnimationFrame(() => setTimeout(() => {
+          ringEl.style.transition = "stroke-dashoffset 1.1s cubic-bezier(.4,0,.2,1)";
+          ringEl.style.strokeDashoffset = offset;
+        }, 80));
       }
 
-      scoreEl.textContent = d.match_score;
-      scoreEl.style.color = textColor;
-      labelEl.textContent = "%";
-      const titleEl = sidebarEl.querySelector(".cc-score-title");
-      if (titleEl) { titleEl.textContent = { strong: "Strong fit", medium: "Partial fit", weak: "Weak fit" }[d.fit_level] || "Analysed"; titleEl.style.color = textColor; }
-      if (circleEl) { circleEl.className = "cc-score-ring-wrap"; }
-      if (verdictEl) verdictEl.textContent = d.verdict || d.recommendation || "";
+      // Count-up animation
+      let _cur = 0; const _target = d.match_score;
+      if (scoreEl) { scoreEl.textContent = "0"; }
+      const _timer = setInterval(() => {
+        _cur = Math.min(_target, _cur + Math.ceil(_target / 28));
+        if (scoreEl) scoreEl.textContent = _cur;
+        if (_cur >= _target) clearInterval(_timer);
+      }, 32);
 
-      const applyMap = {
-        "Apply Now": { cls: "cc-apply-green", icon: "✓" },
-        "Apply With Prep": { cls: "cc-apply-amber", icon: "→" },
-        "Improve First": { cls: "cc-apply-amber", icon: "↑" },
-        "Skip": { cls: "cc-apply-red", icon: "✕" }
-      };
+      // Labels
+      const fitLabel = { strong:"Strong fit", medium:"Partial fit", weak:"Weak fit" }[d.fit_level] || "Analysed";
+      if (labelEl) labelEl.textContent = fitLabel.toUpperCase();
+      if (verdictEl) verdictEl.textContent = d.verdict || "";
+
+      // Apply indicator — dot + text, not a button
       const av = d.apply_recommendation?.verdict || "Apply With Prep";
-      const am = applyMap[av] || applyMap["Apply With Prep"];
-      if (applyEl) { applyEl.textContent = `${am.icon}  ${av}`; applyEl.className = `cc-apply-badge ${am.cls}`; }
+      const dotColor = av === "Apply Now" ? "#4ade80"
+        : av === "Apply With Prep" ? "#fbbf24"
+        : av === "Improve First"   ? "#fb923c"
+        : "#f87171";
+      if (applyEl) {
+        const dot = applyEl.querySelector(".cc-sc-apply-dot");
+        const txt = applyEl.querySelector(".cc-sc-apply-text");
+        if (dot) dot.style.background = dotColor;
+        if (txt) txt.textContent = av;
+      }
+
+      // ── C: Populate the 4-cell dashboard ───────────────────────────────────
+      const bd = d.score_breakdown || {};
+      const gapCount  = (d.missing_skills  || []).length;
+      const fixCount  = (d.resume_suggestions || []).length;
+      const planCount = (d.improvement_plan  || []).length;
+      const intCount  = (d.interview_guide?.technical || []).length;
+      const skillPct  = bd.skills_match || 0;
+      const expPct    = bd.experience_match || 0;
+      // Stats are now always visible inside the score header — just update values
+      const _sv = (id, val) => { const el = sidebarEl.querySelector("#"+id); if (el) el.textContent = val; };
+      _sv("cc-dash-match-val", skillPct + "%");
+      _sv("cc-dash-exp-val",   expPct + "%");
+      _sv("cc-dash-gaps-val",  gapCount === 0 ? "None" : gapCount);
+      _sv("cc-dash-fixes-val", fixCount || "–");
+
+      // ── B: Set accordion badge + teaser line for each section ──────────────
+      function setBadge(id, text, cls) {
+        const el = sidebarEl.querySelector("#cc-badge-" + id);
+        if (el) { el.textContent = text; el.className = "cc-acc-badge " + cls; }
+      }
+      function setTeaser(id, text) {
+        const el = sidebarEl.querySelector("#cc-teaser-" + id);
+        if (el) el.textContent = text;
+      }
+      // Fit
+      const fitLevel = d.fit_level || "medium";
+      setBadge("fit",
+        fitLevel === "strong" ? "Strong" : fitLevel === "weak" ? "Weak" : "Partial",
+        fitLevel === "strong" ? "cc-badge-green" : fitLevel === "weak" ? "cc-badge-red" : "cc-badge-amber"
+      );
+      const fitTeaser = [
+        ...(d.fit_reasons || []).slice(0,2).map(r => r.replace(/^JD requires /i,"").split("—")[0].trim() + " ✓"),
+        ...(d.gap_reasons  || []).slice(0,1).map(r => r.replace(/^JD requires /i,"").split("—")[0].trim() + " ✗"),
+      ].join("  ·  ");
+      setTeaser("fit", fitTeaser);
+      // Skills
+      setBadge("skills",
+        gapCount === 0 ? "No gaps" : gapCount + " gap" + (gapCount > 1 ? "s" : ""),
+        gapCount === 0 ? "cc-badge-green" : gapCount <= 2 ? "cc-badge-amber" : "cc-badge-red"
+      );
+      setTeaser("skills",
+        gapCount > 0
+          ? (d.missing_skills || []).slice(0,3).map(s => (typeof s === "string" ? s : s.skill)).join("  ·  ")
+          : "Covers all required skills"
+      );
+      // Plan
+      setBadge("plan",
+        planCount + " action" + (planCount !== 1 ? "s" : ""),
+        planCount > 0 ? "cc-badge-blue" : "cc-badge-green"
+      );
+      setTeaser("plan",
+        (d.improvement_plan || []).slice(0,2).map(p =>
+          (typeof p === "string" ? p : p.action || "").split(" ").slice(0,5).join(" ")
+        ).join("  ·  ") || "No actions needed"
+      );
+      // Resume
+      setBadge("resume",
+        fixCount + " fix" + (fixCount !== 1 ? "es" : ""),
+        fixCount > 0 ? "cc-badge-amber" : "cc-badge-green"
+      );
+      setTeaser("resume",
+        fixCount > 0
+          ? (d.resume_suggestions || []).slice(0,2).map(s =>
+              (typeof s === "string" ? s : s.issue || "").split(" ").slice(0,4).join(" ")
+            ).join("  ·  ")
+          : "Resume is well-targeted"
+      );
+      // Interview
+      setBadge("interview",
+        intCount > 0 ? intCount + " Qs ready" : "Generating…",
+        "cc-badge-purple"
+      );
+      setTeaser("interview",
+        intCount > 0
+          ? (d.interview_guide?.company_style || "").split(".")[0] || "See detailed prep guide"
+          : "Interview guide available"
+      );
 
       // Score breakdown — check actual storage word count
       safeSend({ type: "GET_RESUME_STATUS" }, (s) => {
         buildScoreBreakdown(d, job, !!s?.hasResume);
       });
 
-      // Fit analysis
+      // Fit tab — three groups, each a titled list
       const fitBody = sidebarEl.querySelector("#cc-fit-body");
       let fitHTML = "";
-      if (d.fit_reasons?.length) {
-        fitHTML += `<div class="cc-fit-group"><div class="cc-fit-group-label cc-green-label">Why you fit</div>`;
-        d.fit_reasons.forEach(r => { fitHTML += `<div class="cc-fit-item cc-fit-yes"><span class="cc-fit-dot cc-dot-green"></span><span>${r}</span></div>`; });
-        fitHTML += `</div>`;
-      }
-      if (d.gap_reasons?.length) {
-        fitHTML += `<div class="cc-fit-group"><div class="cc-fit-group-label cc-red-label">Where you fall short</div>`;
-        d.gap_reasons.forEach(r => { fitHTML += `<div class="cc-fit-item cc-fit-no"><span class="cc-fit-dot cc-dot-red"></span><span>${r}</span></div>`; });
-        fitHTML += `</div>`;
-      }
-      fitBody.innerHTML = fitHTML || "<p class='cc-empty'>No data.</p>";
 
-      // Skills gap
+      const mkGroup = (label, items, dotClass) => {
+        if (!items?.length) return "";
+        return `<div class="cc-list-group">
+          <div class="cc-list-label ${dotClass === "pos" ? "cc-label-pos" : "cc-label-neg"}">${label}</div>
+          ${items.map(r => `<div class="cc-list-row cc-list-${dotClass}">
+            <span class="cc-list-dot"></span><span>${r.replace(/ — /g, ". ").replace(/—/g, "")}</span>
+          </div>`).join("")}
+        </div>`;
+      };
+
+      fitHTML += mkGroup("What you bring", d.resume_strengths, "pos");
+      fitHTML += mkGroup("Why you fit this role", d.fit_reasons, "pos");
+      fitHTML += mkGroup("Where you fall short", d.gap_reasons, "neg");
+      fitBody.innerHTML = fitHTML || "<p class='cc-empty'>No fit data.</p>";
+
+      // Skills tab — two-column checklist (have vs gap) instead of tag soup
       const skillsBody = sidebarEl.querySelector("#cc-skills-body");
+      const reqs = (d.jd_requirements && d.jd_requirements.length) ? d.jd_requirements : job.skills;
+      const missingSet = new Set((d.missing_skills || []).map(s =>
+        (typeof s === "string" ? s : s.skill || "").toLowerCase()
+      ));
+      const missingMap = {};
+      (d.missing_skills || []).forEach(s => {
+        if (typeof s === "object" && s.skill) missingMap[s.skill.toLowerCase()] = s;
+      });
+
       let skHTML = "";
-      if (job.skills.length) {
-        skHTML += `<div class="cc-skill-group-label">Detected in JD</div><div class="cc-chips">`;
-        job.skills.slice(0, 12).forEach(s => { skHTML += `<span class="cc-chip cc-chip-have">${s}</span>`; });
+
+      if (reqs && reqs.length) {
+        skHTML += `<div class="cc-skill-group-label">What this role requires</div>
+        <div class="cc-checklist">`;
+        reqs.slice(0, 16).forEach(req => {
+          const key = req.toLowerCase();
+          const isGap = missingSet.has(key) || [...missingSet].some(m => key.includes(m) || m.includes(key));
+          skHTML += `<div class="cc-check-row ${isGap ? "cc-check-gap" : "cc-check-ok"}">
+            <span class="cc-check-icon">${isGap ? "✕" : "✓"}</span>
+            <span class="cc-check-text">${req}</span>
+          </div>`;
+        });
         skHTML += `</div>`;
       }
+
       if (d.missing_skills?.length) {
-        skHTML += `<div class="cc-skill-group-label cc-red-label" style="margin-top:14px">Missing skills</div>`;
+        skHTML += `<div class="cc-skill-group-label cc-red-label" style="margin-top:16px">How to close the gaps</div>`;
         d.missing_skills.forEach(s => {
           const sk = typeof s === "string" ? { skill: s, importance: "important", how_to_learn: "" } : s;
           const impColor = sk.importance === "critical" ? "cc-badge-red" : sk.importance === "important" ? "cc-badge-amber" : "cc-badge-grey";
-          skHTML += `<div class="cc-missing-row"><div class="cc-missing-top"><span class="cc-missing-skill">${sk.skill}</span><span class="cc-badge ${impColor}">${sk.importance}</span></div>${sk.how_to_learn ? `<div class="cc-how-to">→ ${sk.how_to_learn}</div>` : ""}</div>`;
+          skHTML += `<div class="cc-gap-card">
+            <div class="cc-gap-card-top">
+              <span class="cc-gap-name">${sk.skill}</span>
+              <span class="cc-badge ${impColor}">${sk.importance}</span>
+            </div>
+            ${sk.how_to_learn ? `<div class="cc-how-to">→ ${softenCaps(sk.how_to_learn)}</div>` : ""}
+          </div>`;
         });
+      } else if (reqs && reqs.length) {
+        skHTML += `<div class="cc-skill-all-clear">
+          <span class="cc-skill-all-clear-icon">✓</span>
+          <span>Your resume covers all named requirements</span>
+        </div>`;
       }
-      skillsBody.innerHTML = skHTML || "<p class='cc-empty'>No skills gap detected.</p>";
+      skillsBody.innerHTML = skHTML || "<p class='cc-empty'>No skills data.</p>";
 
-      // Improvement plan
+      // Improvement plan — clean numbered list, no badge noise
       const planBody = sidebarEl.querySelector("#cc-plan-body");
       let planHTML = "";
       (d.improvement_plan || []).forEach((item, i) => {
         const p = typeof item === "string" ? { action: item, impact: "medium", timeframe: "" } : item;
-        const impClass = p.impact === "high" ? "cc-badge-amber" : "cc-badge-grey";
-        planHTML += `<div class="cc-plan-item"><div class="cc-plan-num">${String(i + 1).padStart(2, "0")}</div><div class="cc-plan-content"><div class="cc-plan-action">${p.action}</div><div class="cc-plan-meta"><span class="cc-badge ${impClass}">${p.impact} impact</span>${p.timeframe ? `<span class="cc-timeframe">${p.timeframe}</span>` : ""}</div></div></div>`;
+        const impBorder = p.impact === "high" ? "cc-plan-high" : p.impact === "medium" ? "cc-plan-med" : "";
+        const meta = [
+          p.impact ? p.impact.charAt(0).toUpperCase() + p.impact.slice(1) + " impact" : "",
+          p.timeframe || ""
+        ].filter(Boolean).join("  ·  ");
+        planHTML += `<div class="cc-plan-item ${impBorder}">
+          <div class="cc-plan-num">${i + 1}</div>
+          <div class="cc-plan-content">
+            <div class="cc-plan-action">${p.action}</div>
+            ${meta ? `<div class="cc-plan-meta">${meta}</div>` : ""}
+          </div>
+        </div>`;
       });
       planBody.innerHTML = planHTML || "<p class='cc-empty'>No plan items.</p>";
 
-      // Resume suggestions
+      // Resume suggestions — issue + fix + example, no gap-addressed noise
       const resumeBody = sidebarEl.querySelector("#cc-resume-body");
       let resHTML = "";
       (d.resume_suggestions || []).forEach((s, i) => {
         const sug = typeof s === "string" ? { issue: s, fix: "", example: "" } : s;
-        resHTML += `<div class="cc-resume-item"><div class="cc-resume-issue">${sug.issue}</div>${sug.fix ? `<div class="cc-resume-fix">Fix: ${sug.fix}</div>` : ""}${sug.example ? `<div class="cc-resume-example">"${sug.example}"</div>` : ""}</div>`;
+        resHTML += `<div class="cc-res-item">
+          <div class="cc-res-num">${i + 1}</div>
+          <div class="cc-res-body">
+            <div class="cc-res-issue">${softenCaps(sug.issue)}</div>
+            ${sug.fix    ? `<div class="cc-res-fix">${softenCaps(sug.fix)}</div>` : ""}
+            ${sug.example? `<div class="cc-res-example">"${softenCaps(sug.example)}"</div>` : ""}
+          </div>
+        </div>`;
       });
       resumeBody.innerHTML = resHTML || "<p class='cc-empty'>Resume looks good for this role.</p>";
 
-      // Interview guide
+      // Interview guide — company style + full Q&A + coding strategy + prep checklist
       const intBody = sidebarEl.querySelector("#cc-interview-body");
       let intHTML = "";
 
+      const iq = d.interview_guide || {};
+
+      // Interview style banner — no emoji
+      if (iq.company_style) {
+        const sourceTag = iq.research_source
+          ? `<div class="cc-int-source-tag">Source: ${iq.research_source}</div>`
+          : "";
+        intHTML += `<div class="cc-int-style-banner">
+          <div class="cc-int-style-label">Interview style</div>
+          <div class="cc-int-style-text">${iq.company_style}</div>
+          ${sourceTag}
+        </div>`;
+      }
+
+      // ── Render a question card ────────────────────────────────────────────
       const renderQ = (q, type) => {
         if (type === "technical") {
-          return `<div class="cc-q-card"><div class="cc-q-text">${q.question}</div>${q.why_asked ? `<div class="cc-q-meta">Tests: ${q.why_asked}</div>` : ""}${q.how_to_answer ? `<div class="cc-q-guide"><span class="cc-q-guide-label">How to answer</span> ${q.how_to_answer}</div>` : ""}${q.example_answer_start ? `<div class="cc-q-example">"${q.example_answer_start}"</div>` : ""}</div>`;
+          return `
+          <div class="cc-q-card">
+            <div class="cc-q-text">${q.question}</div>
+            ${q.why_asked ? `<div class="cc-q-meta">Tests: ${q.why_asked}</div>` : ""}
+            ${q.how_to_answer ? `
+            <div class="cc-q-guide">
+              <span class="cc-q-guide-label">Step-by-step approach</span>
+              ${q.how_to_answer}
+            </div>` : ""}
+            ${q.example_answer_start ? `
+            <div class="cc-q-example">"${q.example_answer_start}"</div>` : ""}
+          </div>`;
         } else if (type === "behavioural") {
-          return `<div class="cc-q-card"><div class="cc-q-text">${q.question}</div>${q.why_asked ? `<div class="cc-q-meta">Tests: ${q.why_asked}</div>` : ""}${q.star_guide ? `<div class="cc-q-guide"><span class="cc-q-guide-label">STAR guide</span> ${q.star_guide}</div>` : ""}</div>`;
+          return `
+          <div class="cc-q-card">
+            <div class="cc-q-text">${q.question}</div>
+            ${q.why_asked ? `<div class="cc-q-meta">Competency: ${q.why_asked}</div>` : ""}
+            ${q.star_guide ? `
+            <div class="cc-q-guide">
+              <span class="cc-q-guide-label">STAR guide</span>
+              ${q.star_guide}
+            </div>` : ""}
+          </div>`;
         } else {
-          return `<div class="cc-q-card"><div class="cc-q-text">${q.question}</div>${q.context ? `<div class="cc-q-meta">${q.context}</div>` : ""}${q.how_to_answer ? `<div class="cc-q-guide"><span class="cc-q-guide-label">Key points</span> ${q.how_to_answer}</div>` : ""}</div>`;
+          return `
+          <div class="cc-q-card">
+            <div class="cc-q-text">${q.question}</div>
+            ${q.context ? `<div class="cc-q-meta">${q.context}</div>` : ""}
+            ${q.how_to_answer ? `
+            <div class="cc-q-guide">
+              <span class="cc-q-guide-label">Key points</span>
+              ${q.how_to_answer}
+            </div>` : ""}
+          </div>`;
         }
       };
 
-      const iq = d.interview_guide || {};
       if (iq.technical?.length) {
-        intHTML += `<div class="cc-q-section-label">Technical</div>`;
+        intHTML += `<div class="cc-q-section-label">Technical questions (${iq.technical.length})</div>`;
         iq.technical.forEach(q => { intHTML += renderQ(typeof q === "string" ? { question: q } : q, "technical"); });
       }
       if (iq.behavioural?.length) {
-        intHTML += `<div class="cc-q-section-label" style="margin-top:14px">Behavioural</div>`;
+        intHTML += `<div class="cc-q-section-label" style="margin-top:16px">Behavioural questions (${iq.behavioural.length})</div>`;
         iq.behavioural.forEach(q => { intHTML += renderQ(typeof q === "string" ? { question: q } : q, "behavioural"); });
       }
       if (iq.company_specific?.length) {
-        intHTML += `<div class="cc-q-section-label" style="margin-top:14px">Company-specific</div>`;
+        intHTML += `<div class="cc-q-section-label" style="margin-top:16px">Company-specific questions (${iq.company_specific.length})</div>`;
         iq.company_specific.forEach(q => { intHTML += renderQ(typeof q === "string" ? { question: q } : q, "company"); });
       }
+
+      // ── Coding round strategy ─────────────────────────────────────────────
+      const crs = iq.coding_round_strategy;
+      if (crs && (crs.overview || crs.step_by_step?.length)) {
+        intHTML += `<div class="cc-q-section-label" style="margin-top:16px">Coding strategy</div>`;
+        intHTML += `<div class="cc-coding-strategy">`;
+        if (crs.overview) {
+          intHTML += `<div class="cc-coding-overview">${crs.overview}</div>`;
+        }
+        if (crs.step_by_step?.length) {
+          intHTML += `<div class="cc-coding-steps-label">When you get a question</div>
+          <ol class="cc-coding-steps">
+            ${crs.step_by_step.map(s => `<li>${s}</li>`).join("")}
+          </ol>`;
+        }
+        if (crs.when_stuck) {
+          intHTML += `
+          <div class="cc-coding-stuck">
+            <span class="cc-coding-stuck-label">When you're stuck:</span>
+            ${crs.when_stuck}
+          </div>`;
+        }
+        if (crs.mistakes_to_avoid?.length) {
+          intHTML += `
+          <div class="cc-coding-mistakes-label">Avoid these mistakes:</div>
+          <ul class="cc-coding-mistakes">
+            ${crs.mistakes_to_avoid.map(m => `<li>${m}</li>`).join("")}
+          </ul>`;
+        }
+        intHTML += `</div>`;
+      }
+
+      // ── Preparation checklist ─────────────────────────────────────────────
+      if (iq.preparation_checklist?.length) {
+        intHTML += `<div class="cc-q-section-label" style="margin-top:16px"> Preparation checklist</div>`;
+        intHTML += `<div class="cc-prep-list">`;
+        iq.preparation_checklist.forEach((item, i) => {
+          const p = typeof item === "string" ? { topic: item, why: "", resource: "", time_needed: "" } : item;
+          intHTML += `
+          <div class="cc-prep-item">
+            <div class="cc-prep-item-header">
+              <span class="cc-prep-num">${i + 1}</span>
+              <span class="cc-prep-topic">${p.topic}</span>
+              ${p.time_needed ? `<span class="cc-prep-time"> ${p.time_needed}</span>` : ""}
+            </div>
+            ${p.why ? `<div class="cc-prep-why">${p.why}</div>` : ""}
+            ${p.resource ? `<div class="cc-prep-resource">📚 ${p.resource}</div>` : ""}
+          </div>`;
+        });
+        intHTML += `</div>`;
+      }
+
       intBody.innerHTML = intHTML || "<p class='cc-empty'>No interview questions.</p>";
 
       // Next step
@@ -1343,62 +1894,26 @@
         ns.style.display = "none";
       }
 
-      // ── Resume confirmation card ─────────────────────────────────────────────
-      // Shows what we read from the resume so user knows it was processed
+      // ── Resume warning strip — only shown when NO resume was used ─────────
       const resultsEl = sidebarEl.querySelector("#cc-results");
-
-      // Remove old resume card if exists
-      resultsEl.querySelector(".cc-resume-confirm-card")?.remove();
-
+      resultsEl.querySelector(".cc-resume-strip")?.remove();
       chrome.storage.local.get(["resume_b64_chunks", "resume_name"], s => {
         const hasResume = s.resume_b64_chunks > 0;
-
-        const card = document.createElement("div");
-        card.className = "cc-resume-confirm-card";
-
-        if (hasResume) {
-          const fname = s.resume_name || "Resume.pdf";
-          const strengths = d.resume_strengths || d.fit_reasons?.slice(0, 2) || [];
-          const weaknesses = d.resume_suggestions?.slice(0, 2) || [];
-
-          card.innerHTML = `
-          <div class="cc-rc-header">
-            <div class="cc-rc-icon">📄</div>
-            <div class="cc-rc-title">
-              <div class="cc-rc-name">${fname.length > 25 ? fname.slice(0, 23) + "…" : fname}</div>
-              <div class="cc-rc-sub">Resume read and analysed ✓</div>
-            </div>
-          </div>
-          ${strengths.length ? `
-          <div class="cc-rc-section">
-            <div class="cc-rc-section-label cc-green-label">✓ Strong points in your resume</div>
-            ${strengths.map(s => `<div class="cc-rc-item cc-rc-good">${s}</div>`).join("")}
-          </div>` : ""}
-          ${weaknesses.length ? `
-          <div class="cc-rc-section">
-            <div class="cc-rc-section-label cc-red-label">↑ Needs improvement</div>
-            ${weaknesses.map(w => `<div class="cc-rc-item cc-rc-bad">${w.issue || w}</div>`).join("")}
-          </div>` : ""}
-        `;
-        } else {
-          card.innerHTML = `
-          <div class="cc-rc-header cc-rc-warn">
-            <div class="cc-rc-icon">⚠️</div>
-            <div class="cc-rc-title">
-              <div class="cc-rc-name">No resume uploaded</div>
-              <div class="cc-rc-sub">Analysis based on JD only — upload resume for full fit score</div>
-            </div>
-          </div>
-        `;
-        }
-
-        // Insert before score block
+        if (hasResume) return; // resume present — no confirmation strip needed
+        const strip = document.createElement("div");
+        strip.className = "cc-resume-strip cc-resume-strip-warn";
+        strip.innerHTML = `
+          <span class="cc-rs-icon cc-rs-warn-icon">!</span>
+          <span class="cc-rs-text">No resume uploaded — score is based on the job description only</span>`;
         const scoreBlock = resultsEl.querySelector("#cc-score-block");
-        if (scoreBlock) scoreBlock.before(card);
+        if (scoreBlock) scoreBlock.after(strip);
       });
 
       resultsEl.style.display = "block";
-      // Scroll to top of results
+      // Open Fit accordion, close the rest; scroll to top
+      sidebarEl.querySelectorAll(".cc-acc").forEach(d => { d.open = d.id === "cc-acc-fit"; });
+      const _ns = sidebarEl.querySelector("#cc-next-step"); if (_ns) _ns.style.display = "";
+      const _al = sidebarEl.querySelector("#cc-acc-list"); if (_al) _al.scrollTop = 0;
       sidebarEl.querySelector("#cc-main").scrollTop = 0;
       log.ok('renderResults complete');
     } catch (renderErr) {
@@ -1414,12 +1929,24 @@
   }
 
   function setLoading(show, msg) {
-    const el = sidebarEl.querySelector("#cc-loading");
-    const btn = sidebarEl.querySelector("#cc-analyse-btn");
-    el.style.display = show ? "block" : "none";
-    if (msg) sidebarEl.querySelector("#cc-loading-msg").textContent = msg;
-    btn.disabled = show;
-    btn.textContent = show ? "Matching resume to role…" : "Analyse fit";
+    const el      = sidebarEl.querySelector("#cc-loading");
+    const btn     = sidebarEl.querySelector("#cc-analyse-btn");
+    const strip   = sidebarEl.querySelector("#cc-controls-strip, .cc-section-plain");
+    const steps   = sidebarEl.querySelector("#cc-steps");
+    const main    = sidebarEl.querySelector("#cc-main");
+
+    el.style.display = show ? "flex" : "none";
+
+    // When loading: hide everything else in cc-main so there's nothing to scroll
+    if (strip) strip.style.display  = show ? "none" : "";
+    if (steps) steps.style.display  = "none";  // steps live inside loading screen now
+    // Give cc-main itself no scroll while loading (loading fills it completely)
+    if (main)  main.style.overflow  = show ? "hidden" : "";
+
+    if (msg) { const m = sidebarEl.querySelector("#cc-loading-msg"); if (m) m.textContent = msg; }
+    if (!show) { btn.disabled = false; btn.textContent = "Analyse fit"; }
+    if (show)  { try { startFacts(); } catch(e) {} }
+    else       { try { stopFacts();  } catch(e) {} }
   }
 
   function toast(msg, type) {
@@ -1674,6 +2201,7 @@
       const chip = sidebarEl?.querySelector("#cc-job-chip");
       const btn = sidebarEl?.querySelector("#cc-analyse-btn");
       if (wall) wall.style.display = "none";
+      const secPlain = sidebarEl?.querySelector(".cc-section-plain"); if (secPlain) secPlain.style.display = "flex";
       if (row) row.style.display = "flex";
       if (chip) chip.style.display = "block";
       if (btn) btn.style.display = "block";
